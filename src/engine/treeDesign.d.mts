@@ -1,0 +1,9 @@
+export type TreeStyle={starColor?:string;ribbonPalette?:string;rotation?:number;snow?:boolean;aurora?:boolean;fireworks?:boolean;meteors?:boolean;reindeer?:boolean;orbits?:boolean;royal?:boolean};
+export const TREE_DESIGNS:{name:string;height:number;radius:number;colors:string[];tiers:number}[];
+export const STAR_COLORS:Record<string,string>;
+export const MAX_ROTATION:number;
+export const STYLE_UNLOCKS:Record<string,number>;
+export const STYLE_LABELS:Record<string,string>;
+export function treeGeometry(w:number,h:number,level:number):{cx:number;ground:number;top:number;treeHeight:number;radius:number};
+export function sanitizeTreeStyle(value:unknown):TreeStyle;
+export function resolveTreeStyle(value:TreeStyle|undefined,actual:number,view:number):Required<TreeStyle>;

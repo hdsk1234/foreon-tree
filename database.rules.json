@@ -1,0 +1,20 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "connections": {
+      ".read": "auth != null && root.child('adminAccess').child(auth.uid).child('expiresAt').val() > now && root.child('adminAccess').child(auth.uid).child('accessId').val() === root.child('adminConfig/accessId').val()",
+      "$connection": {
+        ".write": "$connection.matches(/^[a-f0-9-]{36}$/)",
+        ".validate": "newData.hasChildren(['browserId', 'uid', 'page', 'active', 'startedAt', 'updatedAt'])",
+        "browserId": {".validate": "newData.isString() && newData.val().matches(/^[a-f0-9-]{36}$/) && (!data.exists() || newData.val() === data.val())"},
+        "uid": {".validate": "newData.isString() && ((auth == null && newData.val() === '') || (auth != null && newData.val() === auth.uid))"},
+        "page": {".validate": "newData.val() === 'tree' || newData.val() === 'ranking' || newData.val() === 'activity'"},
+        "active": {".validate": "newData.isBoolean()"},
+        "startedAt": {".validate": "newData.isNumber() && newData.val() <= now && ((!data.exists() && newData.val() >= now - 60000) || (data.exists() && newData.val() === data.val()))"},
+        "updatedAt": {".validate": "newData.isNumber() && newData.val() >= now - 60000 && newData.val() <= now"},
+        "$other": {".validate": false}
+      }
+    }
+  }
+}

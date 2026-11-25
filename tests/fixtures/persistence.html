@@ -1,0 +1,35 @@
+<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>경험치 복구 검수</title>
+<style>body{font:18px system-ui;max-width:700px;margin:24px auto;padding:16px;background:#10221c;color:#effff6}button{font:inherit;padding:16px;margin:6px}pre{white-space:pre-wrap}</style>
+<h1>브라우저 경험치 복구 검수</h1><p>격리 Emulator 전용. 실제 게임 디자인에는 포함되지 않습니다.</p>
+<button id="run" disabled>즉시 새로고침 10회 검증</button><button id="touch" disabled>경험치 1 추가</button><button id="refresh">새로고침</button><pre id="report">인증 복원 중</pre>
+<script type="module">
+import {guest,db,functions,projectId} from '/src/lib/firebase.ts';
+import {ScoreQueue} from '/src/lib/PersistentScoreQueue.mjs';
+import {doc,onSnapshot} from 'firebase/firestore';
+import {httpsCallable} from 'firebase/functions';
+if(projectId!=='demo-foreon-tests')throw new Error('격리 테스트 설정이 필요합니다.');
+const eventId=import.meta.env.VITE_EVENT_ID,output=document.querySelector('#report');
+const key=`browser-check:${eventId}`,state=JSON.parse(sessionStorage.getItem(key)||'{}');
+let queue,projection,cacheSeen=false,serverScore=null,error='';
+function render(){output.textContent=JSON.stringify({인증UID유지:state.uidStable??true,새로고침횟수:state.count??0,캐시점수수신:cacheSeen,화면경험치:projection?.score,미전송:projection?.unconfirmed,서버경험치:serverScore,결과:state.result??'대기',오류:error},null,2);}
+async function boot(){
+ const user=await guest();state.uidStable=state.uidStable!==false&&(!state.uid||state.uid===user.uid);state.uid=user.uid;sessionStorage.setItem(key,JSON.stringify(state));
+ await httpsCallable(functions,'joinEvent')({eventId,buildingId:'101'});
+ queue=new ScoreQueue({projectId,uid:user.uid,eventId,buildingId:'101',isCurrent:()=>true,
+  send:async batch=>(await httpsCallable(functions,'submitScoreBatch')({eventId,...batch})).data,
+  status:message=>{error=message;render();},changed:value=>{projection=value;render();}});
+ await queue.readyPromise;
+ onSnapshot(doc(db,'events',eventId,'teamScores','101'),{includeMetadataChanges:true},snapshot=>{
+  if(snapshot.metadata.fromCache&&snapshot.exists())cacheSeen=true;
+  if(snapshot.exists()||!snapshot.metadata.fromCache){const score=snapshot.data()?.score??0,revision=snapshot.data()?.revision??0;queue.receive({score,revision});if(!snapshot.metadata.fromCache)serverScore=score;}
+  render();
+ });
+ document.querySelector('#touch').onclick=()=>queue.touch();
+ document.querySelector('#run').onclick=()=>{state.baseline=projection.score;state.count=0;state.running=true;state.result='진행';step();};
+ function step(){if(!projection?.known){setTimeout(step,30);return;}if(state.count<10){if(!queue.touch())throw new Error('입력 실패');state.expectedScore=projection.score;state.count++;sessionStorage.setItem(key,JSON.stringify(state));location.reload();}
+ else {state.running=false;const expected=state.expectedScore;state.result=projection.score===expected&&state.uidStable?'통과: 10회 즉시 새로고침, UID/경험치 유지':'실패';sessionStorage.setItem(key,JSON.stringify(state));render();}}
+ document.querySelector('#run').disabled=false;document.querySelector('#touch').disabled=false;
+ if(state.running)step();render();
+}
+document.querySelector('#refresh').onclick=()=>location.reload();boot().catch(cause=>{error=String(cause);render();});
+</script></html>

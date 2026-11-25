@@ -1,0 +1,37 @@
+{
+  "name": "foreon-tree",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev-local.mjs",
+    "build": "tsc --noEmit && vite build",
+    "test": "node --test tests/initial-data.test.mjs tests/gallery.test.mjs tests/optimistic-score.test.mjs tests/promotions.test.mjs tests/ranking.test.mjs tests/persistence.test.mjs tests/experience.test.mjs tests/combo.test.mjs tests/tree-design.test.mjs tests/release-config.test.mjs tests/developer-login.test.mjs tests/local-clicks.test.mjs tests/ranking-board.test.mjs tests/presence.test.mjs",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-foreon-tree 'node --test tests/firestore.rules.test.mjs'",
+    "emulators": "npm --prefix functions run build && firebase emulators:start --project demo-foreon-tree",
+    "seed": "node scripts/seed.mjs",
+    "build:functions": "npm --prefix functions run build",
+    "test:scoring": "npm run build:functions && node --test tests/scoring.test.mjs tests/rewards.test.mjs tests/combo-server.test.mjs tests/activity-server.test.mjs",
+    "test:integration": "npm run build:functions && node scripts/test-emulators.mjs",
+    "dev:local": "node scripts/dev-local.mjs",
+    "test:persistence:browser": "npm run build:functions && node scripts/test-emulators.mjs --browser",
+    "build:release": "node scripts/build-release.mjs",
+    "check:release": "node scripts/build-release.mjs --check-only",
+    "smoke:production": "node scripts/smoke-production.mjs --project foreon-tree-20261125",
+    "dev:preview": "vite --host 127.0.0.1"
+  },
+  "dependencies": {
+    "firebase": "^12.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "fake-indexeddb": "^6.2.8",
+    "firebase-admin": "^13.0.0",
+    "firebase-tools": "^14.0.0",
+    "typescript": "^5.8.0",
+    "vite": "^6.1.0"
+  }
+}

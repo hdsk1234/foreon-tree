@@ -1,0 +1,434 @@
+<!doctype html><html lang="ko"><head><meta charset="UTF-8"><title>포레온 트리 원본 프레임 추출</title><style>body{margin:0;background:#050a13}canvas{display:block;max-width:100%;height:auto}</style></head><body><script>(() => {
+  // src/engine/SpiralRibbon.mjs
+  var RIBBON_PARTICLE_COUNT = 600;
+  var RIBBON_PALETTES = {
+    gold: { label: "\uD669\uAE08\uC0C9", swatch: "linear-gradient(110deg,#b88538,#ffe7a5,#fff4d8)", colors: [[255, 211, 124], [255, 224, 161], [241, 189, 99]] },
+    silver: { label: "\uC740\uBC31\uC0C9", swatch: "linear-gradient(110deg,#9dbbcf,#e3f2ff,#fff)", colors: [[162, 194, 218], [222, 239, 252], [255, 255, 250]] },
+    roseGold: { label: "\uB85C\uC988\uACE8\uB4DC", swatch: "linear-gradient(110deg,#ba7a76,#f3b8a2,#ffe4cb)", colors: [[204, 141, 128], [247, 192, 171], [255, 228, 205]] },
+    emerald: { label: "\uC5D0\uBA54\uB784\uB4DC", swatch: "linear-gradient(110deg,#358d76,#83e5ba,#d5ffe8)", colors: [[65, 170, 136], [134, 237, 192], [218, 255, 231]] },
+    rainbow: { label: "\uBB34\uC9C0\uAC2F\uBE5B", swatch: "linear-gradient(110deg,#ef9cbc,#f4d78d,#8be3ba,#9bcdf5,#c6a4ed)", colors: [[247, 166, 191], [251, 221, 153], [143, 233, 185], [143, 204, 248], [201, 171, 246]] }
+  };
+  function colorAt(palette, position) {
+    const colors = (RIBBON_PALETTES[palette] ?? RIBBON_PALETTES.gold).colors;
+    const v = (position % 1 + 1) % 1 * colors.length, index = Math.floor(v), blend = v - index;
+    return colors[index].map((value, i) => Math.round(value + (colors[(index + 1) % colors.length][i] - value) * blend)).join(",");
+  }
+  function projectRibbon(geometry, time, treeRotation, palette = "gold") {
+    const { cx, top, treeHeight, radius } = geometry, points = [];
+    for (let i = 0; i < RIBBON_PARTICLE_COUNT; i++) {
+      const u = 1 - (i / RIBBON_PARTICLE_COUNT + time * 0.027) % 1;
+      const angle = u * 20 + treeRotation;
+      const surfaceRadius = radius * u, depth = Math.sin(angle), near = (depth + 1) / 2;
+      const fade = Math.max(0, Math.min(1, u / 0.055, (1 - u) / 0.045));
+      points.push({
+        x: cx + Math.cos(angle) * surfaceRadius,
+        y: top + u * treeHeight + depth * surfaceRadius * 0.13,
+        depth,
+        u,
+        size: 0.85 + near * 0.25,
+        alpha: (0.18 + near * 0.58) * fade,
+        color: colorAt(palette, u * 0.72 + time * 0.013 + i % 5 * 0.025),
+        glow: i % 8 === 0,
+        highlight: false
+      });
+    }
+    return points;
+  }
+
+  // src/engine/treeDesign.mjs
+  var TREE_DESIGNS = [
+    { name: "\uCCAB \uBC88\uC9F8 \uBE5B", height: 0.38, radius: 0.16, colors: ["63,180,128", "101,220,165"], tiers: 4 },
+    { name: "\uC624\uC0C9\uBCC4\uC758 \uC18C\uC6D0", height: 0.42, radius: 0.18, colors: ["64,206,145", "255,215,131"], tiers: 4 },
+    { name: "\uC740\uD558\uC218\uC758 \uB9AC\uBCF8", height: 0.46, radius: 0.2, colors: ["93,164,226", "194,232,255"], tiers: 5 },
+    { name: "\uCCAB\uB208\uC758 \uCD94\uC5B5", height: 0.5, radius: 0.22, colors: ["213,58,105", "255,169,150"], tiers: 5 },
+    { name: "\uC624\uB85C\uB77C \uC815\uC6D0", height: 0.54, radius: 0.24, colors: ["67,229,188", "172,125,248"], tiers: 6 },
+    { name: "\uBD88\uAF43\uCD95\uC81C", height: 0.58, radius: 0.26, colors: ["244,175,61", "255,237,168"], tiers: 6 },
+    { name: "\uAE38 \uC783\uC740 \uB8E8\uB3CC\uD504", height: 0.62, radius: 0.28, colors: ["119,205,242", "233,252,255"], tiers: 7 },
+    { name: "\uBCC4\uBE5B\uADA4\uB3C4", height: 0.66, radius: 0.3, colors: ["164,104,239", "235,187,255"], tiers: 7 },
+    { name: "\uBC24\uD558\uB298\uC758 \uBCC4\uB625\uBCC4", height: 0.7, radius: 0.32, colors: ["125,220,249", "249,245,223"], tiers: 8 },
+    { name: "\uC778\uC0DD\uC758 \uD68C\uC804\uBAA9\uB9C8", height: 0.74, radius: 0.35, colors: ["255,204,110", "255,248,220"], tiers: 9 }
+  ];
+  var STAR_COLORS = { original: "255,225,155", ice: "164,225,255", rose: "255,157,197", mint: "137,244,202", violet: "202,167,255" };
+  var MAX_ROTATION = 5;
+  var STYLE_UNLOCKS = { starColor: 2, rotation: 10, snow: 4, aurora: 5, fireworks: 6, reindeer: 7, orbits: 8, meteors: 9, royal: 3, ribbonPalette: 3 };
+  function treeGeometry(w, h, level) {
+    const profile = TREE_DESIGNS[Math.max(1, Math.min(10, Math.floor(level))) - 1];
+    return { cx: w / 2, ground: h * 0.91, top: h * (0.86 - profile.height), treeHeight: h * profile.height, radius: Math.min(w * profile.radius, h * profile.height * 0.6) };
+  }
+  function sanitizeTreeStyle(value) {
+    const result = {};
+    if (!value || typeof value !== "object") return result;
+    if (Object.hasOwn(STAR_COLORS, value.starColor)) result.starColor = value.starColor;
+    if (Object.hasOwn(RIBBON_PALETTES, value.ribbonPalette)) result.ribbonPalette = value.ribbonPalette;
+    if (typeof value.rotation === "number" && Number.isFinite(value.rotation) && value.rotation >= 0 && value.rotation <= MAX_ROTATION) result.rotation = Math.round(value.rotation * 20) / 20;
+    for (const key of ["snow", "aurora", "fireworks", "reindeer", "orbits", "meteors", "royal"]) if (typeof value[key] === "boolean") result[key] = value[key];
+    if (value.reindeer === void 0 && typeof value.crystals === "boolean") result.reindeer = value.crystals;
+    return result;
+  }
+  function resolveTreeStyle(value, actual, view) {
+    const raw = sanitizeTreeStyle(value), result = { starColor: "original", ribbonPalette: "gold", rotation: 1, snow: true, aurora: view >= 5, fireworks: view >= 6, reindeer: view >= 7, orbits: view >= 8, meteors: view >= 9, royal: view >= 3 };
+    for (const [key, setting] of Object.entries(raw)) if (actual >= STYLE_UNLOCKS[key]) result[key] = setting;
+    return result;
+  }
+
+  // src/engine/ParticleScene.ts
+  var PARTICLE_COUNTS = [280, 450, 650, 850, 1100, 1400, 1700, 2100, 2500, 2900];
+  function createParticleScene() {
+    let ctx2, w = 0, h = 0, level = 1, clock = 0, rotation = 0, reduced = false;
+    let style = resolveTreeStyle({}, 1, 1), bursts = [];
+    let seed = 231;
+    const random = () => {
+      seed = seed * 16807 % 2147483647;
+      return seed / 2147483647;
+    };
+    const particles = Array.from({ length: 2900 }, () => ({ h: Math.sqrt(random()), angle: random() * Math.PI * 2, radius: 0.58 + random() * 0.42, size: 0.45 + random() * 1.05, phase: random() * Math.PI * 2, color: random() }));
+    const snow = Array.from({ length: 80 }, () => ({ x: random(), y: random(), speed: 0.018 + random() * 0.025, size: 0.4 + random() * 1.3, phase: random() * 6 }));
+    const circle = (x, y, r, color) => {
+      ctx2.beginPath();
+      ctx2.arc(x, y, Math.max(0.1, r), 0, Math.PI * 2);
+      ctx2.fillStyle = color;
+      ctx2.fill();
+    };
+    function glow(x, y, r, color) {
+      const g = ctx2.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, color);
+      g.addColorStop(1, "transparent");
+      ctx2.fillStyle = g;
+      ctx2.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+    function line(points, color, width = 1, close = false) {
+      ctx2.beginPath();
+      points.forEach(([x, y], i) => i ? ctx2.lineTo(x, y) : ctx2.moveTo(x, y));
+      if (close) ctx2.closePath();
+      ctx2.strokeStyle = color;
+      ctx2.lineWidth = width;
+      ctx2.stroke();
+    }
+    function diamond(x, y, size, color) {
+      ctx2.beginPath();
+      ctx2.moveTo(x, y - size);
+      ctx2.lineTo(x + size * 0.65, y);
+      ctx2.lineTo(x, y + size);
+      ctx2.lineTo(x - size * 0.65, y);
+      ctx2.closePath();
+      ctx2.fillStyle = color;
+      ctx2.fill();
+      line([[x, y - size], [x, y + size]], "#ffffff90", 0.6);
+    }
+    function star(x, y, r, color) {
+      glow(x, y, r * 4, `rgba(${color},.22)`);
+      ctx2.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const a = i * Math.PI / 5 - Math.PI / 2, s = i % 2 ? r * 0.42 : r;
+        const px = x + Math.cos(a) * s, py = y + Math.sin(a) * s;
+        i ? ctx2.lineTo(px, py) : ctx2.moveTo(px, py);
+      }
+      ctx2.closePath();
+      ctx2.fillStyle = `rgb(${color})`;
+      ctx2.fill();
+    }
+    const geometry = () => treeGeometry(w, h, level);
+    function aurora() {
+      if (!style.aurora) return;
+      for (let layer = 0; layer < 3; layer++) {
+        const rgb = ["67,235,185", "94,175,249", "171,115,236"][layer];
+        const g = ctx2.createLinearGradient(0, 0, 0, 1);
+        g.addColorStop(0, `rgba(${rgb},0)`);
+        g.addColorStop(0.62, `rgba(${rgb},.018)`);
+        g.addColorStop(0.9, `rgba(${rgb},.16)`);
+        g.addColorStop(1, `rgba(${rgb},0)`);
+        for (let x = -4; x < w + 4; x += 6) {
+          const u = x / w, bend = Math.sin(u * 5.6 + clock * 0.16 + layer * 0.9) * h * 0.05 + Math.sin(u * 11 - clock * 0.12) * h * 0.016;
+          const y = h * (0.03 + layer * 0.045) + bend, extent = h * (0.17 + 0.14 * (0.5 + 0.5 * Math.sin(u * 8 + layer + clock * 0.12)));
+          ctx2.save();
+          ctx2.translate(x, y);
+          ctx2.scale(1, extent);
+          ctx2.fillStyle = g;
+          ctx2.fillRect(0, 0, 7, 1);
+          ctx2.restore();
+        }
+      }
+    }
+    function ground() {
+      const { cx, ground: ground2, radius } = geometry();
+      glow(cx, ground2, radius * 1.3, level >= 8 ? "rgba(157,130,231,.14)" : "rgba(92,170,175,.08)");
+      for (let i = 0; i < (level >= 9 ? 3 : 1); i++) {
+        ctx2.beginPath();
+        ctx2.ellipse(cx, ground2 + i * 4, radius * (1.12 + i * 0.1), 7 + i * 3, 0, 0, Math.PI * 2);
+        ctx2.strokeStyle = level === 10 ? `rgba(249,218,147,${0.5 - i * 0.12})` : "rgba(155,201,222,.16)";
+        ctx2.lineWidth = level >= 9 ? 1.2 : 0.7;
+        ctx2.stroke();
+      }
+    }
+    function orbits(front) {
+      if (!style.orbits) return;
+      const { cx, top, treeHeight, radius } = geometry();
+      const count = level >= 9 ? 3 : 2;
+      for (let j = 0; j < count; j++) {
+        const points = [];
+        for (let i = 0; i <= 64; i++) {
+          const a = (front ? 0 : Math.PI) + i / 64 * Math.PI;
+          points.push([cx + Math.cos(a) * (radius * 1.18 + j * 5), top + treeHeight * (0.28 + j * 0.23) + Math.sin(a) * (10 + j * 4) + Math.cos(a) * radius * (j % 2 ? 0.14 : -0.14)]);
+        }
+        line(points, level === 10 ? "rgba(255,226,152,.6)" : "rgba(186,182,255,.38)", 0.8);
+        if (front) {
+          const a = clock * 0.3 + j * 2;
+          diamond(cx + Math.cos(a) * radius * 1.18, top + treeHeight * (0.28 + j * 0.23) + Math.sin(a) * (10 + j * 4) + Math.cos(a) * radius * (j % 2 ? 0.14 : -0.14), 2.3, "#e6ddff");
+        }
+      }
+    }
+    function tree() {
+      const { cx, top, treeHeight, radius } = geometry(), profile = TREE_DESIGNS[level - 1];
+      glow(cx, top + treeHeight * 0.66, radius * 1.6, `rgba(${profile.colors[0]},.1)`);
+      const projected = [];
+      for (let i = 0; i < PARTICLE_COUNTS[level - 1]; i++) {
+        const p = particles[i], a = p.angle + rotation, depth = Math.sin(a), tier = p.h * profile.tiers % 1;
+        const branch = 0.77 + 0.23 * Math.pow(tier, 0.6), r = radius * p.h * p.radius * branch;
+        projected.push({ x: cx + Math.cos(a) * r, y: top + p.h * treeHeight + depth * r * 0.13, depth, p, opacity: (0.35 + 0.65 * (depth + 1) / 2) * (0.72 + 0.28 * Math.sin(clock * 1.4 + p.phase)) });
+      }
+      projected.sort((a, b) => a.depth - b.depth);
+      for (const q of projected) {
+        const rgb = profile.colors[q.p.color < 0.55 ? 0 : 1], size = q.p.size * (0.9 + (q.depth + 1) * 0.14);
+        circle(q.x, q.y, size, `rgba(${rgb},${q.opacity})`);
+        if (q.p.color < 0.035) circle(q.x, q.y, size * 3.3, `rgba(${rgb},.07)`);
+      }
+      if (level >= 3) for (let tier = 1; tier <= profile.tiers; tier++) {
+        const u = tier / (profile.tiers + 0.25), points = [];
+        for (let i = 0; i <= 32; i++) {
+          const a = i / 32 * Math.PI;
+          points.push([cx + Math.cos(a) * radius * u, top + treeHeight * u + Math.sin(a) * radius * u * 0.13]);
+        }
+        line(points, `rgba(${profile.colors[1]},${level >= 7 ? 0.28 : 0.12})`, 0.65);
+      }
+    }
+    function ribbon() {
+      if (!style.royal && level !== 2) return;
+      const points = projectRibbon(geometry(), style.royal ? clock : 0, rotation, style.royal ? style.ribbonPalette : "gold");
+      for (const p of points) {
+        if (p.alpha <= 0) continue;
+        if (p.glow) circle(p.x, p.y, p.size * 2.7, `rgba(${p.color},${p.alpha * 0.05})`);
+        circle(p.x, p.y, p.size, `rgba(${p.color},${p.alpha})`);
+      }
+    }
+    function ornaments() {
+      if (level < 3) return;
+      const { cx, top, treeHeight, radius } = geometry();
+      const count = level === 3 ? 9 : level === 4 ? 17 : level >= 8 ? 28 : 20;
+      for (let i = 0; i < count; i++) {
+        const u = 0.24 + 0.7 * (i * 0.618 % 1), a = i * 2.4 + rotation, depth = Math.sin(a);
+        if (depth < -0.25) continue;
+        const x = cx + Math.cos(a) * radius * u * 0.96, y = top + u * treeHeight + depth * radius * u * 0.13, s = (level >= 8 ? 3.8 : 2.7) * (w / 360);
+        if (level === 3 || level === 7) diamond(x, y, s, level === 3 ? "#ceeaff" : "#e9fcff");
+        else {
+          glow(x, y, s * 2.5, level === 4 ? "rgba(255,90,128,.2)" : "rgba(255,217,169,.16)");
+          circle(x, y, s, level === 4 ? "#e84b79" : level === 8 ? "#d9a3ff" : level === 5 ? "#a6f8df" : "#ffde9b");
+          circle(x - s * 0.2, y - s * 0.25, s * 0.28, "#fff6");
+        }
+      }
+    }
+    function reindeer(front) {
+      if (!style.reindeer) return;
+      const { cx, top, treeHeight, radius } = geometry(), phase = clock * 0.32 + 1, depth = Math.sin(phase);
+      if (depth >= 0 !== front) return;
+      const x = cx + Math.cos(phase) * Math.min(w * 0.32, radius * 1.13), y = top + treeHeight * 0.43 + depth * treeHeight * 0.1 + Math.sin(clock * 1.8) * 3;
+      const scale = Math.max(0.55, Math.min(1.05, w / 360)) * (0.82 + 0.18 * (depth + 1) / 2), direction = depth >= 0 ? -1 : 1;
+      ctx2.save();
+      ctx2.translate(x, y);
+      ctx2.scale(scale * direction, scale);
+      for (let i = 0; i < 4; i++) {
+        const lx = -8 + i * 5, swing = Math.sin(clock * 3 + i * Math.PI * 0.7) * 4;
+        line([[lx, 4], [lx + swing, 12], [lx + swing + 4, 16]], i % 2 ? "#8c583e" : "#694532", 2.7);
+        line([[lx + swing + 2, 16], [lx + swing + 6, 16]], "#332a2d", 2.5);
+      }
+      line([[-13, -2], [-21, -8]], "#e5c39a", 4);
+      for (const offset of [0, 7]) {
+        const ax = 12 + offset;
+        line([[ax, -17], [ax - 2, -25], [ax - 7, -32]], "#dfbd8b", 1.8);
+        line([[ax - 2, -25], [ax + 3, -30], [ax + 3, -34]], "#dfbd8b", 1.6);
+        line([[ax - 5, -29], [ax - 10, -28], [ax - 12, -32]], "#dfbd8b", 1.5);
+      }
+      ctx2.beginPath();
+      ctx2.ellipse(0, 0, 14, 8, 0, 0, Math.PI * 2);
+      ctx2.fillStyle = "#b58054";
+      ctx2.fill();
+      ctx2.beginPath();
+      ctx2.ellipse(2, 3, 9, 4, 0, 0, Math.PI * 2);
+      ctx2.fillStyle = "#d5a878";
+      ctx2.fill();
+      ctx2.beginPath();
+      ctx2.moveTo(7, 0);
+      ctx2.lineTo(11, -14);
+      ctx2.lineTo(21, -9);
+      ctx2.lineTo(13, 4);
+      ctx2.closePath();
+      ctx2.fillStyle = "#b58054";
+      ctx2.fill();
+      ctx2.beginPath();
+      ctx2.ellipse(17, -13, 7.5, 6, -0.15, 0, Math.PI * 2);
+      ctx2.fillStyle = "#c18c5e";
+      ctx2.fill();
+      ctx2.beginPath();
+      ctx2.ellipse(11, -19, 4, 2, -0.5, 0, Math.PI * 2);
+      ctx2.fillStyle = "#d7b088";
+      ctx2.fill();
+      ctx2.beginPath();
+      ctx2.ellipse(24, -10, 7, 4.5, 0, 0, Math.PI * 2);
+      ctx2.fillStyle = "#edc69b";
+      ctx2.fill();
+      circle(20, -15, 1.3, "#211f2a");
+      circle(20.4, -15.5, 0.45, "#fff");
+      line([[10, -6], [17, -3]], "#bc3e58", 4);
+      line([[12, -3], [6, 1], [2, 0]], "#d85670", 3);
+      glow(30, -10, 9, "rgba(255,66,86,.28)");
+      circle(30, -10, 3.2, "#f35a68");
+      circle(29, -11, 1, "#ffd1bf");
+      ctx2.restore();
+    }
+    function crest() {
+      const { cx, top, treeHeight } = geometry();
+      star(cx, top - 8, Math.max(3, Math.min(14, treeHeight * 0.048)), STAR_COLORS[style.starColor] ?? STAR_COLORS.original);
+    }
+    function atmosphere() {
+      if (style.snow) for (const p of snow.slice(0, 25 + level * 5)) circle(p.x * w + Math.sin(clock * 0.3 + p.phase) * 8, (p.y + clock * p.speed) % 1 * h, p.size, "rgba(211,231,248,.37)");
+      if (level >= 8) for (let i = 0; i < 30; i++) circle(i * 79.13 % 1e3 / 1e3 * w, i * 137.3 % 1e3 / 1e3 * h * 0.65, 0.6 + i % 3 * 0.3, `rgba(217,224,255,${0.2 + 0.35 * (Math.sin(clock + i) + 1) / 2})`);
+      if (!reduced && style.meteors) for (let i = 0; i < 4; i++) {
+        const u = (clock * 0.6 + i * 0.29) % 1, x = w * (1.2 - u * 1.5) + i * 13, y = h * (-0.1 + u * 0.7);
+        const g = ctx2.createLinearGradient(x, y, x + 42, y - 24);
+        g.addColorStop(0, "#dbedffcc");
+        g.addColorStop(1, "#bcb2ff00");
+        line([[x + 42, y - 24], [x, y]], g, 1.3);
+        circle(x, y, 1.4, "#f4fbff");
+      }
+      if (!reduced && style.fireworks) for (let j = 0; j < 3; j++) {
+        const age = (clock * 0.6 + j * 0.31) % 1, x = w * (0.18 + j * 0.32), y = h * (0.2 + j % 2 * 0.13);
+        for (let i = 0; i < 26; i++) {
+          const a = i * Math.PI * 2 / 26, r = age * w * 0.17;
+          circle(x + Math.cos(a) * r, y + Math.sin(a) * r + age * age * 10, 1, `rgba(255,${195 + j * 15},151,${(1 - age) * 0.8})`);
+        }
+      }
+    }
+    function village() {
+      const { cx, ground: ground2, radius } = geometry();
+      if (level >= 3) for (let i = 0; i < (level >= 8 ? 5 : 3); i++) {
+        const x = cx + (i - 1) * (radius * 0.25), y = ground2 + 5 + i % 2 * 5, s = 9 + i % 3 * 3;
+        ctx2.fillStyle = ["#84394f", "#437679", "#9b7945"][i % 3];
+        ctx2.fillRect(x - s / 2, y - s, s, s);
+        ctx2.fillStyle = "#f0d292";
+        ctx2.fillRect(x - 1, y - s, 2, s);
+        ctx2.fillRect(x - s / 2, y - s * 0.65, s, 2);
+      }
+      if (level >= 4) for (const side of level >= 5 ? [-1, 1] : [-1]) {
+        const x = cx + side * radius * 1.12, y = ground2 - 2, s = Math.min(1, w / 400);
+        ctx2.save();
+        ctx2.translate(x, y);
+        ctx2.scale(s, s);
+        circle(0, -11, 10, "#bfd4e4");
+        circle(0, -28, 7, "#e0edf5");
+        circle(-2.5, -29, 1, "#263646");
+        circle(2.5, -29, 1, "#263646");
+        ctx2.fillStyle = "#ac4962";
+        ctx2.fillRect(-7, -23, 14, 3);
+        ctx2.fillRect(3, -21, 3, 9);
+        ctx2.fillStyle = "#34415b";
+        ctx2.fillRect(-9, -35, 18, 2);
+        ctx2.fillRect(-5, -42, 10, 7);
+        circle(0, -11, 1.3, "#34415b");
+        circle(0, -5, 1.3, "#34415b");
+        ctx2.restore();
+      }
+      if (level >= 8) for (const side of [-1, 1]) for (let i = 0; i < 2; i++) {
+        const x = cx + side * (radius * 0.8 + i * 18), y = ground2 - 2, s = 12 + i * 4;
+        ctx2.fillStyle = "#263147";
+        ctx2.fillRect(x - s / 2, y - s, s, s);
+        ctx2.beginPath();
+        ctx2.moveTo(x - s * 0.7, y - s);
+        ctx2.lineTo(x, y - s * 1.6);
+        ctx2.lineTo(x + s * 0.7, y - s);
+        ctx2.fillStyle = "#b6c7d8";
+        ctx2.fill();
+        ctx2.fillStyle = "#f1d28f";
+        ctx2.fillRect(x - 3, y - s * 0.7, 3, 4);
+      }
+    }
+    return {
+      paint(context, width, height, _time, dt, view, options = {}, actual = view, motionReduced = false) {
+        ctx2 = context;
+        w = width;
+        h = height;
+        level = Math.max(1, Math.min(10, view));
+        reduced = motionReduced;
+        style = resolveTreeStyle(options, actual, level);
+        clock += reduced ? 0 : dt;
+        rotation += reduced ? 0 : dt * 0.35 * style.rotation;
+        if (reduced) bursts = [];
+        ctx2.save();
+        ctx2.fillStyle = "#050a13";
+        ctx2.fillRect(0, 0, w, h);
+        aurora();
+        atmosphere();
+        ground();
+        orbits(false);
+        reindeer(false);
+        tree();
+        ribbon();
+        ornaments();
+        orbits(true);
+        crest();
+        reindeer(true);
+        village();
+        for (const p of bursts) {
+          p.x += p.vx * dt;
+          p.y += p.vy * dt;
+          p.life -= dt * 1.7;
+          if (p.life > 0) circle(p.x, p.y, p.size, `rgba(255,224,157,${p.life})`);
+        }
+        bursts = bursts.filter((p) => p.life > 0);
+        ctx2.restore();
+      },
+      burst(x, y) {
+        if (reduced) return;
+        for (let i = 0; i < 18; i++) {
+          const a = Math.random() * Math.PI * 2, s = 25 + Math.random() * 85;
+          bursts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 1, size: 1 + Math.random() * 1.5 });
+        }
+        bursts = bursts.slice(-360);
+      },
+      clearBursts() {
+        bursts = [];
+      }
+    };
+  }
+
+  // <stdin>
+  var levels = [1, 5, 10];
+  var times = [1.25, 3.5, 6, 9];
+  function render(level, seconds, scale = 4) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 320 * scale;
+    canvas.height = 440 * scale;
+    const ctx2 = canvas.getContext("2d");
+    ctx2.scale(scale, scale);
+    const scene = createParticleScene();
+    scene.paint(ctx2, 320, 440, seconds, seconds, level, {}, level, false);
+    return canvas;
+  }
+  window.exportTree = (level, seconds) => render(level, seconds).toDataURL("image/png");
+  var sheet = document.createElement("canvas");
+  sheet.width = 960;
+  sheet.height = 484 * times.length;
+  var ctx = sheet.getContext("2d");
+  ctx.fillStyle = "#101923";
+  ctx.fillRect(0, 0, sheet.width, sheet.height);
+  for (let row = 0; row < times.length; row++) for (let col = 0; col < levels.length; col++) {
+    const level = levels[col], time = times[row];
+    ctx.drawImage(render(level, time, 1), col * 320, row * 484);
+    ctx.fillStyle = "#edcf97";
+    ctx.font = "14px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Lv." + level + " \xB7 " + TREE_DESIGNS[level - 1].name + " \xB7 " + time + "s", col * 320 + 160, row * 484 + 465);
+  }
+  document.body.append(sheet);
+  window.contactSheet = sheet.toDataURL("image/png");
+  window.captureReady = true;
+})();
+</script></body></html>

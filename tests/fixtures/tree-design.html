@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>트리 디자인 검수</title>
+  <link rel="stylesheet" href="/src/style.css">
+  <style>
+    body{background:#050a13;color:white}main{max-width:650px}header{text-align:center;color:#c8b990;letter-spacing:4px;font-size:12px}.gallery{border:0;padding:0}.preview-controls{display:grid;gap:14px;padding:14px 0;color:#a9b9bf;font-size:13px}.preview-controls input{width:100%;min-height:44px;accent-color:#cfb478}#canvas{height:480px}@media(max-width:700px){#canvas{height:clamp(280px,50svh,480px)}}
+  </style>
+</head>
+<body><main>
+  <header>FOREON · CHRISTMAS 2026</header>
+  <section class="gallery">
+    <p class="level-heading" id="title">LEVEL 04</p>
+    <div class="tree"><button class="arrow left" id="prev" aria-label="이전 레벨">‹</button><canvas id="canvas" aria-label="트리 디자인"></canvas><button class="arrow right" id="next" aria-label="다음 레벨">›</button><span class="lock" id="locked" hidden>🔒 미해금</span></div>
+    <div class="indicators" id="indicators" aria-label="트리 레벨"></div>
+    <p id="description"></p>
+  </section>
+  <div class="preview-controls">
+    <label>검수용 달성 레벨 <input id="actual" type="range" min="1" max="10" value="4"></label>
+    <label>검수용 열람 레벨 <input id="viewing" type="range" min="1" max="10" value="4"></label>
+    <p>로컬 디자인 검수 전용 · 서버 경험치에 영향을 주지 않습니다.</p>
+  </div>
+</main>
+<script type="module">
+import {TreeRenderer} from '/src/engine/TreeRenderer.ts';
+const canvas=document.querySelector('#canvas');
+let actualLevel=4,viewingLevel=4;
+const renderer=new TreeRenderer(canvas,{actualLevel,viewingLevel,isOwnBuilding:true});
+function update(){
+  renderer.update({actualLevel,viewingLevel,isOwnBuilding:true});
+  document.querySelector('#title').textContent=`LEVEL ${String(viewingLevel).padStart(2,'0')}`;
+  document.querySelector('#prev').disabled=viewingLevel===1;
+  document.querySelector('#next').disabled=viewingLevel===10;
+  document.querySelector('#locked').hidden=viewingLevel<=actualLevel;
+  document.querySelector('#viewing').value=viewingLevel;
+  document.querySelector('#description').textContent=viewingLevel>actualLevel?'아직 밝혀지지 않은 트리입니다.':viewingLevel<actualLevel?'이미 달성한 성장 단계입니다.':'트리를 눌러 경험치를 모아보세요.';
+  document.querySelector('#indicators').replaceChildren(...Array.from({length:10},(_,i)=>{
+    const button=document.createElement('button');
+    button.className=`${i+1<=actualLevel?'achieved':''} ${i+1===viewingLevel?'selected':''}`;
+    button.setAttribute('aria-label',`${i+1}레벨`);
+    const dot=document.createElement('span');dot.className='level-dot';button.append(dot);
+    button.onclick=()=>{viewingLevel=i+1;update();};return button;
+  }));
+}
+document.querySelector('#prev').onclick=()=>{viewingLevel=Math.max(1,viewingLevel-1);update();};
+document.querySelector('#next').onclick=()=>{viewingLevel=Math.min(10,viewingLevel+1);update();};
+document.querySelector('#actual').oninput=event=>{actualLevel=Number(event.target.value);viewingLevel=actualLevel;update();};
+document.querySelector('#viewing').oninput=event=>{viewingLevel=Number(event.target.value);update();};
+canvas.onpointerdown=event=>{const r=canvas.getBoundingClientRect();renderer.tap(event.clientX-r.left,event.clientY-r.top);};
+window.addEventListener('pagehide',()=>renderer.stop());
+renderer.start();update();
+</script></body></html>

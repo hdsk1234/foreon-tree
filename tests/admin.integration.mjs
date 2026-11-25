@@ -1,0 +1,48 @@
+import test,{after} from 'node:test';
+import assert from 'node:assert/strict';
+import {scryptSync,createHash} from 'node:crypto';
+import {createRequire} from 'node:module';
+import {initializeApp,getApps,deleteApp} from 'firebase-admin/app';
+import {getAuth} from 'firebase-admin/auth';
+import {getFirestore,Timestamp} from 'firebase-admin/firestore';
+import {getDatabaseWithUrl} from 'firebase-admin/database';
+import backend from '../functions/lib/index.js';
+const project=process.env.GCLOUD_PROJECT;
+if(project!=='demo-foreon-tests'||process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8180'||process.env.FIREBASE_AUTH_EMULATOR_HOST!=='127.0.0.1:9199'||process.env.FIREBASE_DATABASE_EMULATOR_HOST!=='127.0.0.1:9100')throw new Error('격리된 관리자 테스트 Emulator에서만 실행하세요.');
+const app=initializeApp({projectId:project},'admin-dashboard-tests'),db=getFirestore(app),auth=getAuth(app);
+const requireFunctions=createRequire(new URL('../functions/package.json',import.meta.url));
+after(async()=>{
+ await Promise.all(getApps().map(app=>deleteApp(app)));
+ const backendApps=requireFunctions('firebase-admin/app');await Promise.all(backendApps.getApps().map(app=>backendApps.deleteApp(app)));
+});
+test('대시보드 권한·계정 분류·원장 조회·관리자 제외·조회 제한',async()=>{
+ const salt='admin-test-salt',password='test-password-only';process.env.DEV_PASSWORD_SALT=salt;process.env.DEV_PASSWORD_HASH=scryptSync(password,salt,64).toString('hex');
+ const accessId=createHash('sha256').update(`${salt}:${process.env.DEV_PASSWORD_HASH}`).digest('hex');
+ const admin=await auth.createUser({uid:`dashboard_admin_${Date.now()}`}),user=await auth.createUser({uid:`dashboard_guest_${Date.now()}`});
+ const eventId=`admin_${Date.now()}`,request=(uid,data={})=>({auth:{uid,token:{}},data:{eventId,...data}});
+ await assert.rejects(backend.adminDashboard.run({data:{eventId}}),error=>error.code==='unauthenticated');
+ await assert.rejects(backend.adminDashboard.run(request(user.uid)),error=>error.code==='permission-denied');
+ await db.doc(`developerSessions/${admin.uid}`).set({accessId,authMethod:'password',expiresAt:Timestamp.fromMillis(Date.now()+60000)});
+ await db.doc(`users/${user.uid}`).set({buildingId:'301'});await db.doc(`events/${eventId}/participants/${user.uid}`).set({buildingId:'301'});await db.doc(`events/${eventId}/userScores/${user.uid}`).set({score:123.5,tapCount:78});
+ const result=await backend.adminDashboard.run(request(admin.uid));
+ assert.equal(result.summary.participants,1);assert.ok(result.summary.total>=1);assert.equal(result.summary.total,result.summary.guest+result.summary.linked);
+ assert.ok(result.rows.every(row=>row.uid!==admin.uid));const account=result.rows.find(row=>row.uid===user.uid);
+ assert.equal(account.buildingId,'301');assert.equal(account.score,123.5);assert.equal(account.taps,78);assert.equal(account.joined,true);
+ assert.equal(result.pageSize,25);assert.equal(result.cacheHit,false);
+ const database=getDatabaseWithUrl(`https://${project}-default-rtdb.asia-southeast1.firebasedatabase.app`,app);
+ const grant=(await database.ref(`adminAccess/${admin.uid}`).once('value')).val();assert.equal(grant.accessId,accessId);assert.ok(grant.expiresAt>Date.now());
+ await assert.rejects(backend.adminDashboard.run(request(admin.uid)),error=>error.code==='resource-exhausted');
+ const cacheId=createHash('sha256').update(JSON.stringify([eventId,0])).digest('hex'),cacheRef=db.doc(`adminDashboardCache/${cacheId}`);
+ await db.doc(`events/${eventId}/userScores/${user.uid}`).update({score:999});
+ await db.doc(`adminDashboardRequests/${admin.uid}`).set({at:0});
+ const cached=await backend.adminDashboard.run(request(admin.uid));assert.equal(cached.cacheHit,true);assert.equal(cached.rows.find(row=>row.uid===user.uid).score,123.5);assert.equal(cached.at,result.at);
+ // A new function instance also reads the shared cache rather than all profiles.
+ const modulePath=requireFunctions.resolve('./lib/admin.js');delete requireFunctions.cache[modulePath];const cold=requireFunctions('./lib/admin.js');
+ await db.doc(`adminDashboardRequests/${admin.uid}`).set({at:0});const coldResult=await cold.adminDashboard.run(request(admin.uid));assert.equal(coldResult.cacheHit,true);assert.equal(coldResult.at,result.at);
+ await cacheRef.update({'payload.at':Date.now()-31000});await db.doc(`adminDashboardRequests/${admin.uid}`).set({at:0});
+ const refreshed=await backend.adminDashboard.run(request(admin.uid,{refresh:true}));assert.equal(refreshed.cacheHit,false);assert.equal(refreshed.rows.find(row=>row.uid===user.uid).score,999);
+ await cacheRef.update({'payload.at':Date.now()-300001});await db.doc(`adminDashboardRequests/${admin.uid}`).set({at:0});
+ assert.equal((await backend.adminDashboard.run(request(admin.uid))).cacheHit,false);
+ await db.doc(`developerSessions/${admin.uid}`).update({expiresAt:Timestamp.fromMillis(0)});
+ await assert.rejects(backend.adminDashboard.run(request(admin.uid)),error=>error.code==='permission-denied');
+});
